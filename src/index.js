@@ -48,7 +48,7 @@ async function start() {
     console.log(' ❌ 未登录, 需要登录')
     // 页面点击 .login-tab.login-tab-l 元素
     await login()
-    await page.click('.login-tab.login-tab-l')
+    // await page.click('.login-tab.login-tab-l')
   }
   while (currentURL !== targetUrl) {
     currentURL = await page.url()
