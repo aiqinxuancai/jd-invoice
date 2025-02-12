@@ -25,7 +25,7 @@ let page
 async function init() {
   await ensureDirectoryExists(path.resolve(__dirname, './file'))
   browser = await puppeteer.launch({
-    // headless: false,
+    headless: false,
     defaultViewport: {
       width: 1440,
       height: 800,
@@ -39,24 +39,21 @@ async function init() {
 }
 async function start() {
   await init()
-
   console.log(` 💾 发票保存路径 ${path.resolve(__dirname)}/file`)
 
   await page.goto(targetUrl)
-  let currentURL = await page.url()
-  if (currentURL !== targetUrl) {
-    console.log(' ❌ 未登录, 需要登录')
-    // 页面点击 .login-tab.login-tab-l 元素
-    await login()
-    await page.click('.login-tab.login-tab-l')
+  
+  const isLoggedIn = await checkLogin()
+  if (!isLoggedIn) {
+    console.log(' ❌ 登录失败')
+    return
   }
-  while (currentURL !== targetUrl) {
-    currentURL = await page.url()
-    await sleep(2000)
-  }
-  // 登录处理
+  
   console.log(' ✅ 登录成功')
-  if (fs.existsSync(cookiePath)) await saveCookie(page)
+  
+  // 如果是新登录，保存cookie
+  await saveCookie(page)
+  
   if (pageNum > 1) {
     await jumpPage(pageNum)
   }
@@ -317,6 +314,35 @@ function openImage(imagePath) {
     default:
       throw new Error(`Unsupported platform: ${process.platform}`)
   }
+}
+
+async function checkLogin() {
+  if (fs.existsSync(cookiePath)) {
+    console.log('发现已保存的 Cookie，尝试使用...')
+    const success = await setCookie(page)
+    if (success) {
+      // 使用实际的目标URL来验证
+      await page.goto(targetUrl)
+      
+      // 检查是否在登录页面
+      const currentURL = await page.url()
+      if (currentURL === targetUrl) {
+        console.log('✅ Cookie 有效，无需重新登录')
+        return true
+      }
+    }
+  }
+  
+  console.log('需要重新登录...')
+  // 执行原有的登录流程
+  await login()
+  
+  // 等待登录完成
+  while (await page.url() !== targetUrl) {
+    await sleep(2000)
+  }
+  
+  return true
 }
 
 start()

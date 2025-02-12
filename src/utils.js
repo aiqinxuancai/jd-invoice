@@ -18,16 +18,28 @@ export async function restTime() {
 }
 
 export async function setCookie(page) {
-  const cookies = JSON.parse(fs.readFileSync(cookiePath, 'utf-8'))
-  for (const cookie of cookies) {
-    await page.setCookie(cookie)
+  try {
+    const cookies = JSON.parse(fs.readFileSync(cookiePath, 'utf-8'))
+    for (const cookie of cookies) {
+      await page.setCookie(cookie)
+    }
+    console.log('✅ Cookie 已成功加载')
+  } catch (error) {
+    console.error('加载 Cookie 时出错:', error)
+    return false
   }
+  return true
 }
 
 export async function saveCookie(page) {
   const cookies = await page.cookies()
-
-  fs.writeFileSync(cookiePath, JSON.stringify(cookies))
+  // 添加错误处理
+  try {
+    fs.writeFileSync(cookiePath, JSON.stringify(cookies, null, 2))
+    console.log('✅ Cookie 已成功保存')
+  } catch (error) {
+    console.error('保存 Cookie 时出错:', error)
+  }
 }
 
 export function existsInvoice(orderId) {
