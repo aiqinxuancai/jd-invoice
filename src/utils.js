@@ -43,14 +43,18 @@ export async function saveCookie(page) {
 }
 
 export function existsInvoice(orderId) {
-  const invoicePath = `./file/${orderId}.pdf`
-  const filename = path.resolve(__dirname, invoicePath)
-  if (fs.existsSync(filename)) {
+  const fileDir = path.resolve(__dirname, './file')
+  if (!fs.existsSync(fileDir)) {
+    return false
+  }
+  const files = fs.readdirSync(fileDir)
+  const exists = files.some((file) => file.includes(orderId) && file.endsWith('.pdf'))
+  if (exists) {
     // 如果发票 已经存在，就不需要重复下载
     console.log(` ✅ 发票  ${orderId} 已经存在,跳过下载`)
-
     return true
   }
+  return false
 }
 
 export async function ensureDirectoryExists(directory) {
