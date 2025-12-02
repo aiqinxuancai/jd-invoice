@@ -135,6 +135,39 @@ async function downloadNextPage() {
   }
 }
 
+async function checkErrorDialog(page) {
+  try {
+    // 设置短超时，因为弹窗通常是立即出现的 (例如 1-2秒)
+    // 这里的 selector 是根据你提供的 HTML 确定的
+    const dialogSelector = '.ui-dialog .m-thickbox-warn .title-main';
+    
+    await page.waitForSelector(dialogSelector, { visible: true, timeout: 2000 });
+    
+    // 获取错误文字
+    const errorText = await page.$eval(dialogSelector, el => el.innerText);
+    console.log(` ⚠️ 检测到换开限制: ${errorText}`);
+
+    // 如果包含关键字，则视为无法换开
+    if (errorText.includes('不支持发票换开') || errorText.includes('不是一单一开票')) {
+      // 必须点击“确定”或关闭按钮，否则遮罩层会挡住后续操作
+      const closeBtnSelector = '.ui-dialog .ui-dialog-btn-cancel';
+      // 或者右上角的关闭 X : '.ui-dialog .ui-dialog-close'
+      
+      await page.waitForSelector(closeBtnSelector);
+      await page.click(closeBtnSelector);
+      
+      // 等待弹窗消失
+      await page.waitForSelector('.ui-dialog', { hidden: true });
+      return true; // 表示发生了错误
+    }
+  } catch (e) {
+    // 超时未找到弹窗，说明没有报错，可以继续后续流程
+    return false;
+  }
+  return false;
+}
+
+
 async function downInvoice(item) {
   const { row, orderId } = item
   // 如果是发票详情就访问并且下载发票至 file 目录
@@ -157,6 +190,13 @@ async function downInvoice(item) {
     await row.evaluate((el) => {
       el.querySelector('.operate a').click()
     })
+    const hasError = await checkErrorDialog(page);
+
+    if (hasError) {
+      console.log(` ⏭️ 跳过订单 ${orderId}，因为不支持换开`);
+      return; // 直接结束当前订单的处理，继续下一个循环
+    }
+    
     // 获取新打开的页面
     const newPage = await newPagePromise
     console.log(` 🔄 开始[换开] ${orderId} 发票`)
