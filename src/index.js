@@ -196,7 +196,7 @@ async function downInvoice(item) {
       console.log(` ⏭️ 跳过订单 ${orderId}，因为不支持换开`);
       return; // 直接结束当前订单的处理，继续下一个循环
     }
-    
+
     // 获取新打开的页面
     const newPage = await newPagePromise
     console.log(` 🔄 开始[换开] ${orderId} 发票`)
@@ -209,40 +209,56 @@ async function downInvoice(item) {
 }
 
 /**
- * @param {发票详情地址} url
- * @returns 是否需要进行换开发票
+ * @param {string} url 发票详情页链接
+ * @returns {boolean} true=需要且能够换开, false=不需要或无法换开
  */
 async function needChangeSubject(url) {
   const popupPage = await browser.newPage()
-  await popupPage.goto(url, { waitUntil: 'domcontentloaded' }) // 稍微优化等待策略
+  // 稍微增加超时设置，防止网络慢误判
+  await popupPage.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 })
 
   try {
-    // 等待表格加载
-    await popupPage.waitForSelector('.invoice-detail .tb-void')
+    // 1. 等待核心内容加载
+    await popupPage.waitForSelector('.invoice-detail', { timeout: 5000 }).catch(() => {})
 
-    // 不再使用死板的 nth-child，而是去遍历表格找到"发票抬头"对应的值
-    const currentTitle = await popupPage.evaluate(() => {
-      // 找到所有的 label 单元格
-      const labels = Array.from(document.querySelectorAll('.invoice-detail .tb-void td.label'));
-      // 找到包含 "发票抬头" 文字的那个 label
-      const targetLabel = labels.find(el => el.innerText.includes('发票抬头'));
-      
-      if (targetLabel && targetLabel.nextElementSibling) {
-        // 返回它下一个兄弟节点（即内容节点）的文本
-        return targetLabel.nextElementSibling.innerText.trim();
+    // 2. 检测是否包含“不支持换开”的提示，或者是否存在换开按钮
+    const canChange = await popupPage.evaluate(() => {
+      // 检查1：是否有明显的禁止提示文本
+      const bodyText = document.body.innerText;
+      if (bodyText.includes('暂不支持换开') || bodyText.includes('暂不支持发票换开')) {
+        return false;
       }
-      return null;
+
+      // 检查2：底部按钮区是否有“换开”字样的按钮
+      const actionDiv = document.getElementById('buttomDivForAsync');
+      if (!actionDiv) return false;
+      
+      const buttons = Array.from(actionDiv.querySelectorAll('a'));
+      const hasChangeBtn = buttons.some(btn => btn.innerText.includes('换开'));
+      
+      return hasChangeBtn;
+    });
+
+    if (!canChange) {
+      console.log(' ⚠️ 该订单不支持换开（可能是国补订单或超过时限），跳过。');
+      await popupPage.close();
+      return false; // 直接返回不需要换开
+    }
+
+    // 3. 既然能换开，再检查抬头是否匹配
+    // 获取当前抬头
+    const currentTitle = await popupPage.evaluate(() => {
+      const labels = Array.from(document.querySelectorAll('.invoice-detail .tb-void td.label'));
+      const targetLabel = labels.find(el => el.innerText.includes('发票抬头'));
+      return targetLabel && targetLabel.nextElementSibling ? targetLabel.nextElementSibling.innerText.trim() : null;
     });
 
     console.log(` 🔎 当前发票抬头: "${currentTitle}"`);
 
-    // 逻辑修正：
-    // 如果没有找到抬头，或者当前抬头 与 配置的目标抬头 不一致，则需要换开
-    // 注意：这里假设 config.companyName 是你想要开的企业名称
     if (currentTitle && currentTitle !== config.companyName) {
-      console.log(` ⚠️ 抬头不匹配 (当前: ${currentTitle} vs 目标: ${config.companyName})，准备换开...`);
+      console.log(` 🔄 抬头不匹配，且具备换开条件，准备换开...`);
       await popupPage.close();
-      return true;
+      return true; // 需要换开
     }
 
     console.log(' ✅ 抬头已匹配，无需换开');
@@ -250,8 +266,8 @@ async function needChangeSubject(url) {
     return false;
 
   } catch (error) {
-    console.log(' ❌ 检测发票抬头失败:', error);
-    await popupPage.close();
+    console.log(' ❌ 检测发票详情页失败:', error.message);
+    if (!popupPage.isClosed()) await popupPage.close();
     return false;
   }
 }
